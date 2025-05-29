@@ -1,0 +1,86 @@
+import pandas as pd
+import numpy as np
+import time
+
+top_N = 10
+alpha = 0.1
+metrics = []
+
+train = pd.read_csv("train.csv")
+test = pd.read_csv("test.csv")
+movies = pd.read_csv("movies.csv")
+
+feature_columns = list(movies.columns)
+feature_columns.remove('movieId')
+movies_features = movies.set_index('movieId')[feature_columns]
+movies_features_dict = movies_features.to_dict('index')
+users = train['userId'].unique()
+
+
+def create_user_model(dim, alpha):
+    A =  np.eye(dim)
+    b = np.zeros((dim, 1))
+    #print(A)
+    return {'A': A, 'b': b, 'alpha': alpha}
+def get_theta(user):
+    return np.linalg.inv(user['A']).dot(user['b'])
+def select_top_n(user, candidate_features, n):
+    A_inv =  np.linalg.inv(user['A'])
+    theta =  get_theta(user)
+    p = (candidate_features.dot(theta)).ravel() + user['alpha'] * np.sqrt((candidate_features.dot(A_inv) * candidate_features).sum(axis=1))
+    indexes = np.argsort(p)[-n:][::-1]
+    return indexes
+def update_user(user, x, r):
+    x = x.reshape(-1, 1)
+    user['A'] +=  x.dot(x.T)
+    user['b'] += r * x
+
+for u in users:
+    user_model = create_user_model(len(feature_columns), alpha)
+    user_train = train[train.userId == u]
+    seen = set()
+    
+    # train
+    for m in user_train['movieId']:
+        features_list = []
+        candidates = list(set(movies_features_dict) - seen)
+        
+        for film_id in candidates:
+            features = list(movies_features_dict[film_id].values())
+            features_list.append(features)
+
+        candidate_features = np.array(features_list)
+        top_idx = select_top_n(user_model, candidate_features, top_N)
+        top_10 = [candidates[i] for i in top_idx]
+        hit = int(m in top_10)
+        if hit:
+            features = np.array(list(movies_features_dict[m].values()))
+            update_user(user_model, features, 1)
+            seen.add(m)
+
+    #test metrikas
+    test_hits, test_mrrs = [], []
+    user_test = test[test.userId == u]
+    for m in user_test['movieId']:
+        candidates = list(set(movies_features_dict) - seen)
+        features_list = [list(movies_features_dict[film].values()) for film in candidates]
+        candidate_features = np.array(features_list)
+        top_idx = select_top_n(user_model, candidate_features, top_N)
+        top_10 = [candidates[i] for i in top_idx]
+        hit = int(m in top_10)
+        test_hits.append(hit)
+        if hit:
+            rank = top_10.index(m) + 1
+            test_mrrs.append(1.0 / rank)
+            features = np.array(list(movies_features_dict[m].values()))
+            update_user(user_model, features, 1)
+            seen.add(m)
+        else:
+            test_mrrs.append(0.0)
+    metrics.append({'userId': u,'hit_rate': np.mean(test_hits), f'mrr@{top_N}':  np.mean(test_mrrs) })
+
+metrics_all = pd.DataFrame(metrics)
+print(metrics_all['hit_rate'].mean())
+print(metrics_all[f'mrr@{top_N}'].mean())
+
+

@@ -1,1 +1,61 @@
-#
+import pandas as pd
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+
+#rating_parameter - CB slieksnies
+rating_parameter = 0.6
+top_N = 10
+metrics = []
+
+train = pd.read_csv("Content_TRAIN.csv")
+test = pd.read_csv("Content_TEST.csv")
+movies  = pd.read_csv("movies_DATA_shuffled.csv")
+
+users = train['userId'].unique()
+feature_columns = list(movies.columns)
+feature_columns.remove('movieId')
+movies_features = movies.set_index('movieId')[feature_columns]
+all_movies_id = set(movies_features.index)
+
+
+for u in users:
+
+    user_ratings_with_features = train.merge(movies, on='movieId')
+    user_movies = user_ratings_with_features[user_ratings_with_features.userId == u]
+    user_liked_movies = user_movies[user_movies.rating >= rating_parameter]
+
+    seen = set(train[train.userId == u].movieId) 
+    profile = user_liked_movies[feature_columns].mean().values.reshape(1, -1)
+    
+    all_similarities = cosine_similarity(profile, movies_features.values)[0]
+    all_ids = list(movies_features.index)
+    movie_sim = list(zip(all_ids, all_similarities))
+
+    hits = []
+    mrrs = []
+
+    user_test = test[test.userId == u]
+    for m in user_test.movieId.values:    
+        candidates = []
+        for movie_id, similarity in movie_sim:
+            if movie_id not in seen:
+                candidates.append((movie_id, similarity))
+                
+        candidates_sorted = sorted(candidates, key=lambda x: -x[1])
+        top_candidates = candidates_sorted[:top_N]
+
+        top_10 = [mid for mid, _ in top_candidates]
+        hit = int(m in top_10)
+
+        # metrikas
+        hits.append(hit)
+        if m in top_10:
+            rank = top_10.index(m) + 1
+            mrrs.append(1.0 / rank)
+            seen.add(m)
+        else:
+            mrrs.append(0.0)
+    metrics.append({'userId': u,'hit_rate': np.mean(hits), f'mrr@{top_N}': np.mean(mrrs)})
+metrics_all = pd.DataFrame(metrics)
+print(metrics_all['hit_rate'].mean())
+print(metrics_all[f'mrr@{top_N}'].mean())

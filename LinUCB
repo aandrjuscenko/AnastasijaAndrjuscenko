@@ -80,7 +80,6 @@ for u in users:
     metrics.append({'userId': u,'hit_rate': np.mean(test_hits), f'mrr@{top_N}':  np.mean(test_mrrs) })
 
 metrics_all = pd.DataFrame(metrics)
-print(metrics_all['hit_rate'].mean())
-print(metrics_all[f'mrr@{top_N}'].mean())
+print(metrics_all['hit_rate'].mean(), metrics_all[f'mrr@{top_N}'].mean())
 
 
